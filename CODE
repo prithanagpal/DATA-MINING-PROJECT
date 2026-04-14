@@ -1,6 +1,9 @@
 YOLOv8n model by replacing standard convolutions in deep C2f bottleneck blocks (indices 6, 8, 12, 15, 18, 21) with SFS-Conv (Spatial-Frequency Selective Convolution)
 
 CODE:
+!pip install ultralytics
+from google.colab import drive
+drive.mount('/content/drive')
 import math
 import numpy as np
 import torch
@@ -144,6 +147,7 @@ class SFS_Conv(nn.Module):
         y   = self.PWC_out(self.CSU(y_s, y_f))
         return y + self.skip(x)
 
+
 # 2. YOLOv8 PATCHING LOGIC
 def patch_model_with_sfs_conv(yolo_model):
     pytorch_model = yolo_model.model
@@ -161,15 +165,14 @@ def patch_model_with_sfs_conv(yolo_model):
     print(f"\n[INFO] Successfully injected SFS_Conv into {patch_count} Bottleneck blocks!\n")
     return yolo_model
 
-
 # 3. AUTO-GENERATE YAML & START TRAINING
 dataset_dir = "/content/drive/MyDrive/HRSID_YOLO"
 yaml_path = f"{dataset_dir}/hrsid_data.yaml"
 yaml_content = {
-    "train": f"{dataset_dir}/images/train", 
-    "val": f"{dataset_dir}/images/val",     
-    "nc": 1,                                 
-    "names": ["ship"]                        
+    "train": f"{dataset_dir}/images/train",
+    "val": f"{dataset_dir}/images/val",
+    "nc": 1,
+    "names": ["ship"]
 }
 with open(yaml_path, 'w') as f:
     yaml.dump(yaml_content, f, sort_keys=False)
@@ -179,13 +182,113 @@ model = YOLO("yolov8n.pt")
 model = patch_model_with_sfs_conv(model)
 print("Starting training with the custom architecture on the T4 GPU...")
 results = model.train(
-    data=yaml_path,         
+    data=yaml_path,
     epochs=50,
     imgsz=640,
     batch=16,
-    project=SAVE_DIR       
+    project=SAVE_DIR
 )
 print("Training finished!")
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# 1. LOAD THE RESULTS CSV
+
+CSV_PATH = "/content/drive/MyDrive/SFS_YOLO_Runs/train5/results.csv"
+
+df = pd.read_csv(CSV_PATH)
+df.columns = df.columns.str.strip()
+sns.set_theme(style="whitegrid", context="paper", font_scale=1.2)
+
+# 2. PLOT: METRICS (mAP & Precision/Recall)
+plt.figure(figsize=(10, 6))
+
+plt.plot(df['epoch'], df['metrics/mAP50(B)'], label='mAP@50', color='#2ca02c', linewidth=2.5)
+plt.plot(df['epoch'], df['metrics/mAP50-95(B)'], label='mAP@50-95', color='#1f77b4', linewidth=2.5)
+plt.plot(df['epoch'], df['metrics/precision(B)'], label='Precision', color='#ff7f0e', linestyle='--')
+plt.plot(df['epoch'], df['metrics/recall(B)'], label='Recall', color='#d62728', linestyle='--')
+
+plt.title('Custom SFS-YOLO: Performance Metrics Over 50 Epochs', fontsize=16, fontweight='bold')
+plt.xlabel('Epochs', fontsize=14)
+plt.ylabel('Metric Value', fontsize=14)
+plt.ylim(0, 1.05)
+plt.legend(loc='lower right', fontsize=12)
+plt.tight_layout()
+plt.show()
+
+# 3. PLOT: TRAINING VS VALIDATION LOSS
+plt.figure(figsize=(14, 5))
+
+# --- Box Loss Subplot ---
+plt.subplot(1, 2, 1)
+plt.plot(df['epoch'], df['train/box_loss'], label='Train Box Loss', color='#1f77b4', linewidth=2)
+plt.plot(df['epoch'], df['val/box_loss'], label='Val Box Loss', color='#ff7f0e', linewidth=2, linestyle='--')
+plt.title('Bounding Box Loss', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+
+# --- Class/Objectness Loss Subplot ---
+plt.subplot(1, 2, 2)
+plt.plot(df['epoch'], df['train/cls_loss'], label='Train Class Loss', color='#2ca02c', linewidth=2)
+plt.plot(df['epoch'], df['val/cls_loss'], label='Val Class Loss', color='#d62728', linewidth=2, linestyle='--')
+plt.title('Classification Loss', fontsize=14, fontweight='bold')
+plt.xlabel('Epochs')
+plt.ylabel('Loss')
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+import torch
+
+from ultralytics import YOLO
+import yaml
+import os
+from google.colab import drive
+drive.mount('/content/drive')
+
+print("PyTorch and YOLO loaded successfully!")
+
+#TRAINING BASELINE YOLOV8 FROM SCRATCH
+import yaml
+import os
+from ultralytics import YOLO
+
+# 1. Define Drive paths
+dataset_dir = "/content/drive/MyDrive/HRSID_YOLO"
+yaml_path = f"{dataset_dir}/hrsid_data.yaml"
+SAVE_DIR = "/content/drive/MyDrive/HRSID_Baseline_Scratch_Runs"
+
+# 2. Re-create or confirm the YAML content
+yaml_content = {
+    "train": f"{dataset_dir}/images/train",
+    "val": f"{dataset_dir}/images/val",
+    "nc": 1,
+    "names": ["ship"]
+}
+
+with open(yaml_path, 'w') as f:
+    yaml.dump(yaml_content, f, sort_keys=False)
+print(f"[INFO] Verified Dataset YAML file at: {yaml_path}")
+
+# 3. LOAD FROM SCRATCH:
+print("[INFO] Initializing YOLOv8 network from scratch (no pre-trained weights)...")
+model = YOLO("yolov8n.yaml")
+
+# 4. Start the training process
+print("[INFO] Starting training from scratch on T4 GPU for 50 epochs...")
+results = model.train(
+    data=yaml_path,
+    epochs=50,
+    imgsz=640,
+    batch=16,
+    project=SAVE_DIR
+)
+print("Training finished!")
+
+
 
 
 
